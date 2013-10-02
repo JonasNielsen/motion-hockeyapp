@@ -5,7 +5,7 @@ class BITHockeyManagerLauncher
   BITCrashManagerStatusAutoSend = 2
   
   def start(&block)
-    return if !Object.const_defined?('BITHockeyManager') || UIDevice.currentDevice.model.include?('Simulator')
+    return if !Object.const_defined?('BITHockeyManager') || (defined?(UIDevice) && UIDevice.currentDevice.model.include?('Simulator'))
     (@plist = NSBundle.mainBundle.objectForInfoDictionaryKey('HockeySDK')) && (@plist = @plist.first)
     return unless @plist
     BITHockeyManager.sharedHockeyManager.configureWithBetaIdentifier(@plist['beta_id'], liveIdentifier:@plist['live_id'], delegate:self)

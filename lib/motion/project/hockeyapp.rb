@@ -82,6 +82,37 @@ Motion::Project::App.setup do |app|
 end
 
 namespace 'hockeyapp' do
+
+  def platform
+    App.osx? ? "MacOSX" : "iPhoneOS"
+  end
+
+  def app_ipa
+    App.osx? ? App.config.archive.gsub('.pkg','.app')+'.zip' : App.config.archive
+  end
+
+  def app_dsym
+    App.config.app_bundle(platform).sub(/\.app$/, '.dSYM')
+  end
+
+  def app_dsym_zip
+    app_dsym+'.zip'
+  end
+
+  desc "Prepare archive for submission to HockeyApp"
+  task :prepare do
+    # An archived version of the .dSYM bundle is needed.
+    if !File.exist?(app_dsym_zip) or File.mtime(app_dsym) > File.mtime(app_dsym_zip)
+      Dir.chdir(File.dirname(app_dsym)) do
+        sh "/usr/bin/zip -q -r \"#{File.basename(app_dsym)}.zip\" \"#{File.basename(app_dsym)}\""
+      end
+    end
+
+    if App.osx?
+      sh "/usr/bin/zip -q -r \"#{app_ipa}\" \"#{app_ipa.gsub('.zip','')}\""
+    end
+  end
+
   desc "Submit an archive to HockeyApp"
   task :submit do
 
@@ -89,27 +120,17 @@ namespace 'hockeyapp' do
 
     # Retrieve configuration settings.
     prefs = App.config.hockeyapp
-
     App.fail "A value for app.hockeyapp.api_token is mandatory" unless prefs.api_token
-    notes = ENV['notes'].to_s
 
     Rake::Task["archive"].invoke
+    Rake::Task["hockeyapp:prepare"].invoke
 
-    # An archived version of the .dSYM bundle is needed.
-    app_dsym = App.config.app_bundle('iPhoneOS').sub(/\.app$/, '.dSYM')
-    app_dsym_zip = app_dsym + '.zip'
-    if !File.exist?(app_dsym_zip) or File.mtime(app_dsym) > File.mtime(app_dsym_zip)
-      p app_dsym
-      Dir.chdir(File.dirname(app_dsym)) do
-        sh "/usr/bin/zip -q -r \"#{File.basename(app_dsym)}.zip\" \"#{File.basename(app_dsym)}\""
-      end
-    end
-
+    notes = ENV['notes'].to_s
     prefs.status ||= "2"
     prefs.notify ||= "0"
     prefs.notes_type ||= "1"
 
-    curl = %Q{/usr/bin/curl https://rink.hockeyapp.net/api/2/apps -F "status=#{prefs.status}" -F "notify=#{prefs.notify}" -F "notes=#{notes}" -F "notes_type=#{prefs.notes_type}" -F "ipa=@#{App.config.archive}" -F "dsym=@#{app_dsym_zip}" -H "X-HockeyAppToken: #{prefs.api_token}"}
+    curl = %Q{/usr/bin/curl https://rink.hockeyapp.net/api/2/apps -F "status=#{prefs.status}" -F "notify=#{prefs.notify}" -F "notes=#{notes}" -F "notes_type=#{prefs.notes_type}" -F "ipa=@#{app_ipa}" -F "dsym=@#{app_dsym_zip}" -H "X-HockeyAppToken: #{prefs.api_token}"}
 
     App.info 'Run', curl
     sh curl
@@ -119,7 +140,6 @@ namespace 'hockeyapp' do
   task :record_mode do
     hockeyapp_mode = App.config_without_setup.hockeyapp_mode ? "True" : "False"
 
-    platform = 'iPhoneOS'
     bundle_path = App.config.app_bundle(platform)
     build_dir = File.join(App.config.versionized_build_dir(platform))
     FileUtils.mkdir_p(build_dir)
